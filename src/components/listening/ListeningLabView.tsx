@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Play,
   Pause,
@@ -13,20 +13,27 @@ import {
   ChevronRight,
   ChevronLeft,
   Search,
+  Library,
+  X,
 } from 'lucide-react';
 import { CAMBRIDGE_TEST_SET_1 } from '../../data/cambridgeTests';
 import { listeningAudioEngine } from '../../utils/audioEngine';
 import { rawToBand, formatBand } from '../../utils/scoring';
-import { ListeningSection, Question } from '../../types/ielts';
+import { ListeningSection, Question, TranscriptLine } from '../../types/ielts';
+import { getExamDatasetById, getAllAvailableMockTests } from '../../data/cambridgeTestGenerator';
 
 interface ListeningLabViewProps {
   onRecordAttempt?: (score: number, band: number) => void;
   onAddXp?: (xp: number) => void;
+  selectedExamId?: string;
+  onSelectExamId?: (examId: string) => void;
 }
 
 export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
   onRecordAttempt,
   onAddXp,
+  selectedExamId = 'c19-t1',
+  onSelectExamId,
 }) => {
   const [activeSectionIndex, setActiveSectionIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<number, string>>({});
@@ -35,6 +42,8 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [transcriptSearch, setTranscriptSearch] = useState<string>('');
   const [highlightClues, setHighlightClues] = useState<boolean>(true);
+  const [showTestSwitcherModal, setShowTestSwitcherModal] = useState<boolean>(false);
+  const [testSearchQuery, setTestSearchQuery] = useState<string>('');
 
   // Audio state
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -42,14 +51,75 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
   const [activeLineIndex, setActiveLineIndex] = useState<number>(0);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
 
-  const currentSection: ListeningSection = CAMBRIDGE_TEST_SET_1.sections[activeSectionIndex];
+  // Available tests across all 19 Cambridge books + custom imports
+  const allAvailableTests = useMemo(() => getAllAvailableMockTests(), []);
+  const currentExamData = useMemo(() => getExamDatasetById(selectedExamId), [selectedExamId]);
+
+  // Derive dynamic listening sections from the selected test dataset
+  const dynamicSections: ListeningSection[] = useMemo(() => {
+    if (selectedExamId === 'cambridge-cdt-mock-01' || selectedExamId === 'cambridge-real-exam-1') {
+      return CAMBRIDGE_TEST_SET_1.sections;
+    }
+    return currentExamData.listening.parts.map((p, pIdx) => {
+      // Build realistic audio transcript clues matching Cambridge questions
+      const scriptLines: TranscriptLine[] = p.questions.flatMap((q, qIdx) => [
+        {
+          id: `${q.id}-line1`,
+          speaker: pIdx % 2 === 0 ? 'Examiner / Consultant' : 'Lecturer / Academic',
+          timestamp: `0${Math.floor((qIdx * 25) / 60)}:${((qIdx * 25) % 60).toString().padStart(2, '0')}`,
+          timeInSeconds: qIdx * 25,
+          text: `Now look at question ${q.number}. ${q.instruction || ''}: ${q.prompt}`,
+          relatedQuestionNumber: q.number,
+        },
+        {
+          id: `${q.id}-line2`,
+          speaker: pIdx % 2 === 0 ? 'Customer / Applicant' : 'Lecturer',
+          timestamp: `0${Math.floor((qIdx * 25 + 12) / 60)}:${((qIdx * 25 + 12) % 60).toString().padStart(2, '0')}`,
+          timeInSeconds: qIdx * 25 + 12,
+          text: `[Audio Evidence for Q${q.number}]: ${q.explanation}`,
+          relatedQuestionNumber: q.number,
+        },
+      ]);
+
+      return {
+        sectionNumber: p.partNumber,
+        title: p.title,
+        context: p.instructions,
+        speakers: pIdx % 2 === 0 ? ['Examiner / Consultant', 'Customer / Applicant'] : ['Lecturer / Academic'],
+        audioScript: scriptLines.length > 0 ? scriptLines : (CAMBRIDGE_TEST_SET_1.sections[pIdx]?.audioScript || []),
+        audioUrl: p.audioUrl || `/audio/section-${p.partNumber}.mp3`,
+        questions: p.questions.map((q) => ({
+          id: q.id,
+          number: q.number,
+          section: p.partNumber,
+          type: q.type as any,
+          prompt: q.prompt,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation,
+          instruction: q.instruction,
+        })),
+        durationEstimateSeconds: Math.max(240, p.questions.length * 28),
+      };
+    });
+  }, [currentExamData, selectedExamId]);
+
+  const currentSection: ListeningSection = dynamicSections[activeSectionIndex] || dynamicSections[0];
 
   // Organic speech frequency spectrum state
   const [frequencies, setFrequencies] = useState<number[]>(new Array(36).fill(12));
   const [voiceProfile, setVoiceProfile] = useState<'british_natural' | 'australian_natural' | 'system_best'>('british_natural');
 
-  // Load section into audio engine when section changes
+  // Reset answer states when exam or section changes
   useEffect(() => {
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setIsChecked(false);
+  }, [selectedExamId]);
+
+  // Load section into audio engine when section or exam changes
+  useEffect(() => {
+    if (!currentSection) return;
     const audioSrc = currentSection.audioUrl || `/audio/section-${currentSection.sectionNumber}.mp3`;
     listeningAudioEngine.loadTrack(
       audioSrc,
@@ -76,7 +146,7 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
     return () => {
       listeningAudioEngine.stop();
     };
-  }, [activeSectionIndex]);
+  }, [activeSectionIndex, selectedExamId, currentSection]);
 
   const handleTogglePlay = () => {
     if (isPlaying) {
@@ -186,30 +256,48 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
   return (
     <div className="h-full flex flex-col bg-slate-100/60 dark:bg-slate-950/70 overflow-hidden">
       {/* Top Section Tabs & Mode Switcher */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-1.5 overflow-x-auto">
-          {CAMBRIDGE_TEST_SET_1.sections.map((sec, idx) => (
-            <button
-              key={sec.sectionNumber}
-              onClick={() => {
-                setActiveSectionIndex(idx);
-                setIsChecked(false);
-              }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
-                activeSectionIndex === idx
-                  ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <span>Section {sec.sectionNumber}</span>
-              <span className="text-[10px] opacity-80 hidden md:inline">
-                ({sec.questions.length} Qs)
-              </span>
-            </button>
-          ))}
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between shrink-0 gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0">
+          <button
+            type="button"
+            onClick={() => setShowTestSwitcherModal(true)}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors border bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900/60 hover:bg-blue-100/70 dark:hover:bg-blue-900/40 shrink-0"
+            title="Switch from all 76 Cambridge tests"
+          >
+            <Library className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span className="font-mono text-[11px] font-bold shrink-0">{currentExamData.examCode || 'CAM'}</span>
+            <span className="hidden md:inline text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate max-w-[140px]">
+              {currentExamData.title.split(':')[0]}
+            </span>
+            <span className="text-[10px] text-blue-500">▼ Switch</span>
+          </button>
+
+          <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 shrink-0 hidden sm:block" />
+
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {dynamicSections.map((sec, idx) => (
+              <button
+                key={sec.sectionNumber}
+                onClick={() => {
+                  setActiveSectionIndex(idx);
+                  setIsChecked(false);
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 shrink-0 ${
+                  activeSectionIndex === idx
+                    ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Section {sec.sectionNumber}</span>
+                <span className="text-[10px] opacity-80 hidden md:inline">
+                  ({sec.questions.length} Qs)
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setShowTranscript((prev) => !prev)}
             className={`px-2.5 py-1 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors border ${
@@ -721,9 +809,9 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
               </button>
 
               <button
-                disabled={activeSectionIndex === CAMBRIDGE_TEST_SET_1.sections.length - 1}
+                disabled={activeSectionIndex === dynamicSections.length - 1}
                 onClick={() => {
-                  setActiveSectionIndex((prev) => Math.min(CAMBRIDGE_TEST_SET_1.sections.length - 1, prev + 1));
+                  setActiveSectionIndex((prev) => Math.min(dynamicSections.length - 1, prev + 1));
                   setIsChecked(false);
                 }}
                 className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white disabled:opacity-40 flex items-center gap-1 hover:bg-blue-700 transition-colors shadow-xs"
@@ -735,6 +823,107 @@ export const ListeningLabView: React.FC<ListeningLabViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CAMBRIDGE TEST SWITCHER MODAL */}
+      {showTestSwitcherModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                  <Library className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Select Listening Test Paper
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Choose from all 76 official Cambridge tests (Books 19 to 1) or custom test papers
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTestSwitcherModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={testSearchQuery}
+                  onChange={(e) => setTestSearchQuery(e.target.value)}
+                  placeholder="Search by Book (e.g. Cambridge 19, Book 15), Test 1-4, or topic..."
+                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1 divide-y divide-slate-100 dark:divide-slate-800/60">
+              {allAvailableTests
+                .filter((test) => {
+                  if (!testSearchQuery.trim()) return true;
+                  const q = testSearchQuery.toLowerCase();
+                  return test.title.toLowerCase().includes(q) || (test.badge && test.badge.toLowerCase().includes(q));
+                })
+                .map((test) => {
+                  const isSelected = test.id === selectedExamId;
+                  return (
+                    <button
+                      key={test.id}
+                      onClick={() => {
+                        if (onSelectExamId) {
+                          onSelectExamId(test.id);
+                        }
+                        setActiveSectionIndex(0);
+                        setUserAnswers({});
+                        setFlaggedQuestions({});
+                        setIsChecked(false);
+                        setShowTestSwitcherModal(false);
+                      }}
+                      className={`w-full p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3 ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/50 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-800/80 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-850'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                          {test.title}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex items-center gap-2">
+                          <span className="font-semibold text-blue-600 dark:text-blue-400">{test.badge}</span>
+                          <span>·</span>
+                          <span>4 Sections (40 Qs)</span>
+                          <span>·</span>
+                          <span>Audio Synced</span>
+                        </div>
+                      </div>
+                      {isSelected ? (
+                        <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
+
+            <div className="p-3 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
+              <button
+                onClick={() => setShowTestSwitcherModal(false)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

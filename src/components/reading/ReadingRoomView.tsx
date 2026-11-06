@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -22,11 +22,15 @@ import {
   Copy,
   Check,
   Languages,
+  Library,
 } from 'lucide-react';
 import { lookupWordDefinition, cleanWordToken, DictionaryEntry } from '../../utils/dictionary';
+import { getExamDatasetById, getAllAvailableMockTests } from '../../data/cambridgeTestGenerator';
 
 interface ReadingRoomViewProps {
   onAddXp?: (xp: number) => void;
+  selectedExamId?: string;
+  onSelectExamId?: (examId: string) => void;
 }
 
 interface QuickDefineTooltipState {
@@ -37,7 +41,11 @@ interface QuickDefineTooltipState {
   loading: boolean;
 }
 
-export const ReadingRoomView: React.FC<ReadingRoomViewProps> = ({ onAddXp }) => {
+export const ReadingRoomView: React.FC<ReadingRoomViewProps> = ({
+  onAddXp,
+  selectedExamId = 'c19-t1',
+  onSelectExamId,
+}) => {
   const [fontSize, setFontSize] = useState<number>(15);
   const [highlightMode, setHighlightMode] = useState<boolean>(false);
   const [banglaAssistMode, setBanglaAssistMode] = useState<boolean>(true);
@@ -174,64 +182,40 @@ export const ReadingRoomView: React.FC<ReadingRoomViewProps> = ({ onAddXp }) => 
     setTimeout(() => setCopiedWord(false), 1500);
   };
 
-  const passage = {
-    title: 'The Andean Agricultural Terraces: Ancient Microclimate Engineering',
-    paragraphs: [
-      {
-        id: 'A',
-        text: 'Across the steep, frost-prone slopes of the central Andes, ancient pre-Columbian agriculturalists faced severe environmental hazards: thin high-altitude atmospheres, torrential rainstorms, and sub-zero nighttime frosts. To counter these vulnerabilities, civilizations including the Wari and Inca constructed monumental stone-walled agricultural terraces, known regionally as andenes. These structures transformed vertical mountain slopes into stepped agricultural platforms, fundamentally altering Andean food security.',
-      },
-      {
-        id: 'B',
-        text: 'Engineering investigations demonstrate that andenes were far more than simple soil retaining walls. Excavations reveal a sophisticated multi-layered drainage foundation. The bottom layer comprised large basalt boulders, overlain by coarse river gravel, fine sand, and finally rich organic topsoil imported from lower river valleys. This stratification prevented waterlogging during torrential monsoons while retaining adequate moisture during prolonged droughts.',
-      },
-      {
-        id: 'C',
-        text: 'Crucially, the massive thermal mass of the dark stone retaining walls served as passive solar collectors. During intense daytime equatorial sunlight, the stones absorbed substantial heat. As ambient temperatures plummeted rapidly after sunset, the walls gradually radiated this captured thermal energy back into the soil and adjacent air, raising the terrace microclimate by between two and three degrees Celsius—a critical margin that prevented crop damage from lethal night frosts.',
-      },
-    ],
-    questions: [
-      {
-        number: 1,
-        type: 'matching_headings',
-        instruction: 'Choose the correct heading for Paragraph B.',
-        prompt: 'Which heading best describes Paragraph B?',
-        options: [
-          'i. Multi-tiered structural layering and drainage design',
-          'ii. Decline of agricultural output following the Spanish conquest',
-          'iii. Astronomical alignments in stone wall orientation',
-        ],
-        correctAnswer: 'i',
-        explanation: 'Paragraph B explains the multi-layered foundation: boulders, gravel, sand, and topsoil preventing waterlogging and retaining moisture.',
-      },
-      {
-        number: 2,
-        type: 'true_false_not_given',
-        instruction: 'Write TRUE, FALSE, or NOT GIVEN.',
-        prompt: 'Statement: The andenes were first developed solely during the Inca imperial reign.',
-        options: ['TRUE', 'FALSE', 'NOT GIVEN'],
-        correctAnswer: 'FALSE',
-        explanation: 'The text states civilizations including the Wari (who preceded the Inca) constructed them.',
-      },
-      {
-        number: 3,
-        type: 'true_false_not_given',
-        instruction: 'Write TRUE, FALSE, or NOT GIVEN.',
-        prompt: 'Statement: Dark stone terrace walls raised the local night microclimate by up to three degrees Celsius.',
-        options: ['TRUE', 'FALSE', 'NOT GIVEN'],
-        correctAnswer: 'TRUE',
-        explanation: 'The text confirms the walls radiated heat, "raising the terrace microclimate by between two and three degrees Celsius".',
-      },
-      {
-        number: 4,
-        type: 'fill_in_the_blank',
-        instruction: 'Write ONE WORD ONLY from the passage.',
-        prompt: 'The lowest stratum of the terrace foundation was composed of basalt [ 4 ].',
-        correctAnswer: 'boulders',
-        explanation: 'Paragraph B explicitly states: "The bottom layer comprised large basalt boulders".',
-      },
-    ],
-  };
+  const [activeExamId, setActiveExamId] = useState<string>(selectedExamId);
+  const [activePassageIndex, setActivePassageIndex] = useState<number>(0);
+  const [showTestPickerModal, setShowTestPickerModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedExamId && selectedExamId !== activeExamId) {
+      setActiveExamId(selectedExamId);
+      setActivePassageIndex(0);
+      setAnswers({});
+      setIsSubmitted(false);
+    }
+  }, [selectedExamId, activeExamId]);
+
+  const examData = useMemo(() => getExamDatasetById(activeExamId), [activeExamId]);
+  const activePart = examData.reading.parts[activePassageIndex] || examData.reading.parts[0];
+
+  const passage = useMemo(() => {
+    return {
+      title: activePart?.passageTitle || activePart?.title || 'Academic Reading Passage',
+      paragraphs: activePart?.passageParagraphs?.map((p) => ({
+        id: p.label?.replace('Paragraph ', '') || p.id,
+        text: p.text,
+      })) || [],
+      questions: activePart?.questions?.map((q) => ({
+        number: q.number,
+        type: q.type,
+        instruction: q.instruction,
+        prompt: q.prompt,
+        options: q.options || (q.type === 'true_false_not_given' ? ['TRUE', 'FALSE', 'NOT GIVEN'] : []),
+        correctAnswer: Array.isArray(q.correctAnswer) ? q.correctAnswer[0] : q.correctAnswer,
+        explanation: q.explanation,
+      })) || [],
+    };
+  }, [activePart]);
 
   const handleAnswer = (num: number, val: string) => {
     setAnswers((prev) => ({ ...prev, [num]: val }));
@@ -380,20 +364,49 @@ export const ReadingRoomView: React.FC<ReadingRoomViewProps> = ({ onAddXp }) => 
   return (
     <div className="h-full flex flex-col bg-slate-100/60 dark:bg-slate-950/70 overflow-hidden relative">
       {/* Top Toolbar */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between shrink-0 select-none">
-        <div className="flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-            {isFocusMode ? 'Reading Focus Mode (Full Screen)' : 'CDT Reading Simulator — Split View'}
-          </span>
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 select-none">
+        <div className="flex items-center gap-2 min-w-0">
+          <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+
+          {/* Test Selector Button */}
+          <button
+            onClick={() => setShowTestPickerModal(true)}
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1.5 truncate max-w-[220px] sm:max-w-xs hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
+            title="Switch Cambridge test paper"
+          >
+            <Library className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{examData.title}</span>
+          </button>
+
+          {/* Passage 1 / 2 / 3 Tabs */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg shrink-0">
+            {[0, 1, 2].map((idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  setActivePassageIndex(idx);
+                  setAnswers({});
+                  setIsSubmitted(false);
+                }}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                  activePassageIndex === idx
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                P{idx + 1}
+              </button>
+            ))}
+          </div>
+
           {isFocusMode && (
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 hidden md:inline">
               Distraction-Free
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Quick Vocab Notebook Button */}
           <button
             onClick={() => setIsVocabModalOpen(true)}
@@ -916,6 +929,71 @@ export const ReadingRoomView: React.FC<ReadingRoomViewProps> = ({ onAddXp }) => 
                 className="px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CAMBRIDGE TEST PICKER MODAL */}
+      {showTestPickerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 px-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Library className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Select Cambridge Test for Reading Practice
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowTestPickerModal(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              {getAllAvailableMockTests().map((test) => {
+                const isSelected = test.id === activeExamId;
+                return (
+                  <button
+                    key={test.id}
+                    onClick={() => {
+                      setActiveExamId(test.id);
+                      if (onSelectExamId) onSelectExamId(test.id);
+                      setActivePassageIndex(0);
+                      setAnswers({});
+                      setIsSubmitted(false);
+                      setShowTestPickerModal(false);
+                    }}
+                    className={`w-full p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-white dark:bg-slate-850'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                        {test.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                        {test.badge} · 3 Passages · Bangla Tooltip Active
+                      </div>
+                    </div>
+                    {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="p-3 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
+              <button
+                onClick={() => setShowTestPickerModal(false)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+              >
+                Close
               </button>
             </div>
           </div>

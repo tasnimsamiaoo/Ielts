@@ -19,6 +19,7 @@ import {
   CornerDownLeft,
   Command,
   HardDrive,
+  Library,
 } from 'lucide-react';
 import { AppView } from '../../store/ieltsStore';
 
@@ -109,6 +110,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       icon: Clock,
       shortcut: '⌘6',
       onExecute: () => onNavigate('mock'),
+    },
+    {
+      id: 'library',
+      title: 'Cambridge IELTS Library (Books 1–19)',
+      subtitle: 'Catalog of 19 official editions, 76 full tests, & JSON past paper importer',
+      category: 'Modules',
+      icon: Library,
+      shortcut: '⌘7',
+      onExecute: () => onNavigate('library'),
     },
     {
       id: 'journey',

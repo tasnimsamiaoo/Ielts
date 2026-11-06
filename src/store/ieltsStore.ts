@@ -10,6 +10,7 @@ export type AppView =
   | 'writing'
   | 'speaking'
   | 'mock'
+  | 'library'
   | 'analytics'
   | 'calculator'
   | 'api';
@@ -114,6 +115,20 @@ export function useIeltsStore() {
   });
 
   const [activeDrillType, setActiveDrillType] = useState<QuestionType>('multiple_choice');
+  const [selectedExamId, setSelectedExamIdState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ielts_selected_exam_id');
+      if (saved) return saved;
+    }
+    return 'c19-t1';
+  });
+
+  const setSelectedExamId = (examId: string) => {
+    setSelectedExamIdState(examId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ielts_selected_exam_id', examId);
+    }
+  };
 
   // Sync theme with documentElement
   useEffect(() => {
@@ -213,5 +228,7 @@ export function useIeltsStore() {
     examHistory,
     activeDrillType,
     setActiveDrillType,
+    selectedExamId,
+    setSelectedExamId,
   };
 }

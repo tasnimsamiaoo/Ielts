@@ -20,6 +20,7 @@ import { ImprovementDashboardView } from './components/analytics/ImprovementDash
 import { BandCalculatorView } from './components/calculator/BandCalculatorView';
 import { FullMockExamView } from './components/mock/FullMockExamView';
 import { ApiExplorerView } from './components/api/ApiExplorerView';
+import { CambridgeLibraryView } from './components/library/CambridgeLibraryView';
 import { QuestionType } from './types/ielts';
 
 export default function App() {
@@ -37,6 +38,8 @@ export default function App() {
     examHistory,
     activeDrillType,
     setActiveDrillType,
+    selectedExamId,
+    setSelectedExamId,
   } = useIeltsStore();
 
   // Navigation rail collapse state (persisted)
@@ -138,6 +141,8 @@ export default function App() {
         return 'Speaking Interview Booth';
       case 'mock':
         return 'Official CDT Full Mock Exam';
+      case 'library':
+        return 'Cambridge IELTS Library (Books 1–19)';
       case 'drills':
         return 'Targeted Question Drills';
       case 'journey':
@@ -193,6 +198,8 @@ export default function App() {
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {currentView === 'listening' && (
             <ListeningLabView
+              selectedExamId={selectedExamId}
+              onSelectExamId={setSelectedExamId}
               onAddXp={addXp}
               onRecordAttempt={(score, band) => {
                 recordExamAttempt({
@@ -229,7 +236,11 @@ export default function App() {
           )}
 
           {currentView === 'reading' && (
-            <ReadingRoomView onAddXp={addXp} />
+            <ReadingRoomView
+              onAddXp={addXp}
+              selectedExamId={selectedExamId}
+              onSelectExamId={setSelectedExamId}
+            />
           )}
 
           {currentView === 'writing' && (
@@ -244,6 +255,17 @@ export default function App() {
             <FullMockExamView
               onCompleteMock={recordExamAttempt}
               onNavigateToView={setCurrentView}
+              selectedExamId={selectedExamId}
+              onSelectExamId={setSelectedExamId}
+            />
+          )}
+
+          {currentView === 'library' && (
+            <CambridgeLibraryView
+              onNavigateToView={setCurrentView}
+              onSelectTest={(testId) => {
+                setSelectedExamId(testId);
+              }}
             />
           )}
 

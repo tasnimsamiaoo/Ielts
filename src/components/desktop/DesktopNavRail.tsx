@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   HardDrive,
+  Library,
 } from 'lucide-react';
 import { AppView } from '../../store/ieltsStore';
 
@@ -80,6 +81,13 @@ export const DesktopNavRail: React.FC<DesktopNavRailProps> = ({
       label: 'Full Mock CDT',
       icon: Clock,
       badge: 'Timed',
+      category: 'core',
+    },
+    {
+      id: 'library',
+      label: 'Cambridge Library',
+      icon: Library,
+      badge: 'Books 1–19',
       category: 'core',
     },
     // Tools & Progress
