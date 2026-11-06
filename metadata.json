@@ -1,0 +1,6 @@
+{
+  "name": "IELTS Prep Desktop - Cambridge CDT Exam & Practice Simulator",
+  "description": "Desktop-styled IELTS Computer-Delivered Test preparation app with Cambridge Listening Lab, AI Writing Evaluator with inline error highlights and Band 8+ suggestions, offline download bundle, and band diagnostics.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
